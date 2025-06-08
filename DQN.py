@@ -116,7 +116,7 @@ state, _ = env.reset()
 n_observations = 15 * 15
 
 
-select_model = 0
+select_model = 1
 
 if select_model == 0:
     policy_net_0 = LinearModel(n_observations, n_actions).to(device)
@@ -154,7 +154,14 @@ def select_action(state, policy_net):
         with torch.no_grad():
             return policy_net(state).max(1).indices.view(1, 1)
     else:
-        return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+        # return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+
+        zero_indices = (state[0, 0] == 0).nonzero(as_tuple=False)
+
+        chosen_index = zero_indices[random.randint(0, zero_indices.size(0) - 1)]
+        action = chosen_index[-2] * 15 + chosen_index[-1]
+
+        return torch.tensor([[action]], device=device, dtype=torch.long)
 
 
 episode_durations = []
