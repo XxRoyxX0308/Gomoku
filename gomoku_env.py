@@ -34,7 +34,7 @@ class GomokuEnv(gym.Env):
         self.board.fill(0)
         self.current_player = 1
         self.done = False
-        return [self.board.copy()]
+        return [self.board.copy()], None
 
     def render(self, mode='human'):
         """

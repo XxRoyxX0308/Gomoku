@@ -3,12 +3,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from env import GomokuEnv
-from replay_memory import ReplayMemory
-
+from gomoku_env import GomokuEnv
 import math
 import random
 import matplotlib.pyplot as plt
+from collections import namedtuple, deque
 from itertools import count
 
 env = GomokuEnv()
@@ -16,10 +15,30 @@ env = GomokuEnv()
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
+
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+
+class ReplayMemory(object):
+
+    def __init__(self, capacity):
+        self.memory = deque([], maxlen=capacity)
+
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
     
 
 class LinearModel(nn.Module):
-    
+
     def __init__(self, n_observations, n_actions):
         super(LinearModel, self).__init__()
         self.flatten = nn.Flatten()
@@ -27,7 +46,8 @@ class LinearModel(nn.Module):
         self.layer2 = nn.Linear(256, 512)
         self.layer3 = nn.Linear(512, 512)
         self.layer4 = nn.Linear(512, 256)
-        self.layer5 = nn.Linear(256, n_actions)
+        self.layer5 = nn.Linear(256, 256)
+        self.layer6 = nn.Linear(256, n_actions)
         self.drop = nn.Dropout(0.2)
 
     def forward(self, x):
@@ -38,7 +58,9 @@ class LinearModel(nn.Module):
         x = F.relu(self.layer3(x))
         x = self.drop(x)
         x = F.relu(self.layer4(x))
-        return self.layer5(x)
+        x = self.drop(x)
+        # x = F.relu(self.layer5(x))
+        return self.layer6(x)
     
     
 class CNNModel(nn.Module):
@@ -90,7 +112,7 @@ TAU = 0.005
 LR = 1e-4
 
 n_actions = env.action_space.n
-state = env.reset()
+state, _ = env.reset()
 n_observations = 15 * 15
 
 
@@ -163,7 +185,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
         return
     transitions = memory.sample(BATCH_SIZE)
     
-    batch = memory.Transition(*zip(*transitions))
+    batch = Transition(*zip(*transitions))
 
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                           batch.next_state)), device=device, dtype=torch.bool)
@@ -203,7 +225,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
 num_episodes = 2000
 
 for i_episode in range(num_episodes):
-    state = env.reset()
+    state, _ = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
         if i_episode + 1 == num_episodes:

@@ -1,3 +1,6 @@
 torch
+torchrl
+tensordict
+gymnasium
 numpy
 matplotlib
