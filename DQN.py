@@ -185,15 +185,12 @@ def optimize_model(memory, policy_net, target_net, optimizer):
 
 
 
-num_episodes = 2000
+num_episodes = 1000
 
 for i_episode in range(num_episodes):
     state, _ = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
-        if i_episode + 1 == num_episodes:
-            env.render()
-        
         action = select_action(state, policy_net_0)
 
         observation, reward, terminated, _ = env.step(action.tolist()[0])
@@ -217,15 +214,16 @@ for i_episode in range(num_episodes):
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net_0.load_state_dict(target_net_state_dict)
 
+        if i_episode + 1 == num_episodes:
+            print(action)
+            env.render()
+
         if done:
             episode_durations.append(t + 1)
             plot_durations()
             break
 
         
-
-        if i_episode + 1 == num_episodes:
-            env.render()
 
         action = select_action(state, policy_net_1)
         observation, reward, terminated, _ = env.step(action.tolist()[0])
@@ -248,6 +246,10 @@ for i_episode in range(num_episodes):
         for key in policy_net_state_dict:
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net_1.load_state_dict(target_net_state_dict)
+
+        if i_episode + 1 == num_episodes:
+            print(action)
+            env.render()
 
         if done:
             episode_durations.append(t + 1)
