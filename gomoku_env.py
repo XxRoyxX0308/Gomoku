@@ -15,33 +15,34 @@ class GomokuEnv(gym.Env):
         self.board_size = board_size
         self.win_length = win_length
         # 初始化棋盤(0 表示空格)
-        self.board = np.zeros((board_size, board_size), dtype=np.int8)
-        # 當前玩家 (1 或 2)，我們讓玩家1為智能體
-        self.current_player = 1
+        self.board = np.zeros((2, board_size, board_size), dtype=np.int8)
+        # 當前玩家 (1 或 2)，我們讓玩家1為智能體 1 to 0, 2 to 1
+        self.current_player = 0
         self.done = False
 
-        # 定義動作空間和觀測空間:contentReference[oaicite:4]{index=4}
-        self.action_space = spaces.Discrete(board_size * board_size)
-        # 值範圍 [0,2] 的整數陣列
-        self.observation_space = spaces.Box(
-            low=0, high=2, shape=(board_size, board_size), dtype=np.int8
-        )
+        # # 定義動作空間和觀測空間:contentReference[oaicite:4]{index=4}
+        # self.action_space = spaces.Discrete(board_size * board_size)
+        # # 值範圍 [0,2] 的整數陣列
+        # self.observation_space = spaces.Box(
+        #     low=0, high=1, shape=(2, board_size, board_size), dtype=np.int8
+        # )
 
     def reset(self):
         """
         重置環境，清空棋盤，當前玩家設為 1，返回初始觀測。
         """
         self.board.fill(0)
-        self.current_player = 1
+        self.current_player = 0
         self.done = False
-        return [self.board.copy()], None
+        return self.board.copy(), None
 
-    def render(self, mode='human'):
+    def render(self):
         """
         簡單列印棋盤，0 為空、1 為玩家1棋子、2 為玩家2棋子。
         """
         # 可以使用更豐富的視覺化，例如 matplotlib，但這裡採簡單文字列印
-        for row in self.board:
+        for i in range(len(self.board[0])):
+            row = self.board[0][i] + self.board[1][i] * 2
             print(' '.join(str(int(x)) for x in row))
         print()  # 換行
 
@@ -56,14 +57,14 @@ class GomokuEnv(gym.Env):
             # 向該方向前進計數
             rr, cc = r + dr, c + dc
             while 0 <= rr < self.board_size and 0 <= cc < self.board_size \
-                  and self.board[rr, cc] == player:
+                  and self.board[player, rr, cc] == 1:
                 count += 1
                 rr += dr
                 cc += dc
             # 向相反方向後退計數
             rr, cc = r - dr, c - dc
             while 0 <= rr < self.board_size and 0 <= cc < self.board_size \
-                  and self.board[rr, cc] == player:
+                  and self.board[player, rr, cc] == 1:
                 count += 1
                 rr -= dr
                 cc -= dc
@@ -83,23 +84,27 @@ class GomokuEnv(gym.Env):
             raise RuntimeError("Game is done. Please reset the environment.")
         
         # 轉換為 (row, col)
-        row, col = divmod(action, self.board_size)
+        # row, col = divmod(action, self.board_size)
+        row, col = action
+
         # 檢查動作是否在範圍內
         if not (0 <= row < self.board_size and 0 <= col < self.board_size):
             raise ValueError(f"Invalid action {action}")
         # 如果該位置已有棋子，視為非法
-        if self.board[row, col] != 0:
+        if (self.board[:, row, col] != 0).any():
             self.done = True
-            return [self.board.copy()], -1, self.done, {}
+            reward = -0.2
+            
+            return None, reward, self.done, {}
         
         # 放置當前玩家的棋子
-        self.board[row, col] = self.current_player
+        self.board[self.current_player, row, col] = 1
         # 檢查是否構成五子連珠
         if self.check_five(row, col, self.current_player):
             self.done = True
             # 當前玩家獲勝，若為玩家1(智能體)則 reward=+1，否則-1
             reward = 10 # if self.current_player == 1 else -1
-            return [self.board.copy()], reward, self.done, {}
+            return None, reward, self.done, {}
         # elif self.check_five(row, col, self.current_player, 4):
         #     reward = 8 # if self.current_player == 1 else -1
         #     print(4)
@@ -113,25 +118,17 @@ class GomokuEnv(gym.Env):
         #     return [self.board.copy()], reward, False, {}
         
         # 檢查是否和局（棋盤已滿）
-        if not (self.board == 0).any():
+        if not (self.board[0] + self.board[1] == 0).any():
             self.done = True
             return None, 0, self.done, {}
         
         # # 切換到另一位玩家 (環境) 下棋
-        # self.current_player = 2 if self.current_player == 1 else 1
-        # # 隨機選擇一個空位作為對手的動作
-        # empties = np.argwhere(self.board == 0)
-        # if empties.size > 0:
-        #     idx = np.random.choice(len(empties))
-        #     opp_r, opp_c = empties[idx]
-        #     self.board[opp_r, opp_c] = self.current_player
-        #     # 檢查對手是否勝利
-        #     if self.check_five(opp_r, opp_c, self.current_player):
-        #         self.done = True
-        #         # 若環境(玩家2)勝，對智能體懲罰 -1
-        #         return self.board.copy(), -1, self.done, {}
-        
-        # 執行完對手動作後，將回合切回玩家1(智能體)
-        self.current_player = 1 if self.current_player == 2 else 2
+        self.current_player = int(not self.current_player)
         # 未分出勝負，回傳 reward=0
-        return [self.board.copy()], -0.1, False, {}
+        reward = 1
+
+        if self.current_player:
+            return self.board.copy(), reward, self.done, {}
+        else:
+            flip = np.flip(self.board, 0)
+            return flip.copy(), reward, self.done, {}

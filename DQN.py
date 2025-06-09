@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
 
-env = GomokuEnv(board_size = 9)
+env = GomokuEnv(board_size = 15)
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -37,69 +37,31 @@ class ReplayMemory(object):
         return len(self.memory)
     
 
-class LinearModel(nn.Module):
-
-    def __init__(self, n_observations, n_actions):
-        super(LinearModel, self).__init__()
-        self.flatten = nn.Flatten()
-        self.layer1 = nn.Linear(n_observations, 256)
-        self.layer2 = nn.Linear(256, 512)
-        self.layer3 = nn.Linear(512, 512)
-        self.layer4 = nn.Linear(512, 256)
-        self.layer5 = nn.Linear(256, 256)
-        self.layer6 = nn.Linear(256, n_actions)
-        self.drop = nn.Dropout(0.2)
-
-    def forward(self, x):
-        x = self.flatten(x)
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
-        x = self.drop(x)
-        x = F.relu(self.layer3(x))
-        x = self.drop(x)
-        x = F.relu(self.layer4(x))
-        x = self.drop(x)
-        # x = F.relu(self.layer5(x))
-        return self.layer6(x)
-    
     
 class CNNModel(nn.Module):
-    def __init__(self, n_observations, n_actions, n_hidden=8):
+    def __init__(self, n_hidden=8):
         super().__init__()
         self.block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=1,
-                      out_channels=n_hidden,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1),
+            nn.Conv2d(2, n_hidden, 3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=n_hidden,
-                      out_channels=n_hidden*2,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1),
+            nn.Conv2d(n_hidden, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2,
-                         stride=2)
+            # nn.MaxPool2d(2),
+            nn.Conv2d(n_hidden*2, n_hidden*4, 3, padding=1),
+            nn.ReLU(),
         )
         self.block_2 = nn.Sequential(
-            nn.Conv2d(n_hidden*2, n_hidden, 3, padding=1),
+            nn.ConvTranspose2d(n_hidden*4, n_hidden*2, 3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(n_hidden, n_hidden, 3, padding=1),
+            # nn.MaxUnpool2d(2),
+            nn.ConvTranspose2d(n_hidden*2, n_hidden, 3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2)
-        )
-        self.flatten = nn.Flatten()
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(in_features=n_hidden*(n_hidden+1),
-                      out_features=n_actions)
+            nn.ConvTranspose2d(n_hidden, 1, 3, stride=1, padding=1),
         )
 
     def forward(self, x):
         x = self.block_1(x)
         x = self.block_2(x)
-        x = self.classifier(x)
         return x
 
 
@@ -111,25 +73,17 @@ EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 
-n_actions = env.action_space.n
-state, _ = env.reset()
-n_observations = 15 * 15
 
+# n_actions = env.action_space.n
+# state, _ = env.reset()
+# n_observations = 15 * 15
+num_hidden = 8
 
-select_model = 1
+policy_net_0 = CNNModel(num_hidden).to(device)
+target_net_0 = CNNModel(num_hidden).to(device)
 
-if select_model == 0:
-    policy_net_0 = LinearModel(n_observations, n_actions).to(device)
-    target_net_0 = LinearModel(n_observations, n_actions).to(device)
-
-    policy_net_1 = LinearModel(n_observations, n_actions).to(device)
-    target_net_1 = LinearModel(n_observations, n_actions).to(device)
-elif select_model == 1:
-    policy_net_0 = CNNModel(n_observations, n_actions).to(device)
-    target_net_0 = CNNModel(n_observations, n_actions).to(device)
-
-    policy_net_1 = CNNModel(n_observations, n_actions).to(device)
-    target_net_1 = CNNModel(n_observations, n_actions).to(device)
+policy_net_1 = CNNModel(num_hidden).to(device)
+target_net_1 = CNNModel(num_hidden).to(device)
 
 
 target_net_0.load_state_dict(policy_net_0.state_dict())
@@ -152,17 +106,13 @@ def select_action(state, policy_net):
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
-            print(policy_net(state).max(1).indices.view(1, 1))
-            return policy_net(state).max(1).indices.view(1, 1)
+            prob = policy_net(state)[0, 0]
+            return (prob==torch.max(prob)).nonzero()[0].unsqueeze(0)
     else:
-        # return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
-
-        zero_indices = (state[0, 0] == 0).nonzero(as_tuple=False)
-
+        zero_indices = (state[0][0] + state[0][1] == 0).nonzero(as_tuple=False)
         chosen_index = zero_indices[random.randint(0, zero_indices.size(0) - 1)]
-        action = chosen_index[-2] * 15 + chosen_index[-1]
-
-        return torch.tensor([[action]], device=device, dtype=torch.long)
+        
+        return chosen_index.unsqueeze(0)
 
 
 episode_durations = []
@@ -199,14 +149,17 @@ def optimize_model(memory, policy_net, target_net, optimizer):
                                           batch.next_state)), device=device, dtype=torch.bool)
     non_final_next_states = torch.cat([s for s in batch.next_state
                                                 if s is not None])
+    
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
-
+    
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    # state_action_values = policy_net(state_batch).gather(1, action_batch)
+    prob = policy_net(state_batch).squeeze(1)
+    state_action_values = prob[action_batch[:, 0], action_batch[:, 1]]
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -214,9 +167,11 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     # This is merged based on the mask, such that we'll have either the expected
     # state value or 0 in case the state was final.
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
     
+    with torch.no_grad():
+        pred = target_net(non_final_next_states)
+        next_state_values[non_final_mask] = pred.view(pred.size(0), -1).max(1).values
+
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     criterion = nn.SmoothL1Loss()
@@ -238,17 +193,17 @@ for i_episode in range(num_episodes):
     for t in count():
         if i_episode + 1 == num_episodes:
             env.render()
-
-        action = select_action(state, policy_net_0)
         
-        observation, reward, terminated, _ = env.step(action.item())
+        action = select_action(state, policy_net_0)
+
+        observation, reward, terminated, _ = env.step(action.tolist()[0])
         reward = torch.tensor([reward], device=device)
         done = terminated
 
-        # if done:
-        #     next_state = None
-        # else:
-        next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+        if done:
+            next_state = None
+        else:
+            next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         memory_0.push(state, action, next_state, reward)
 
@@ -273,14 +228,14 @@ for i_episode in range(num_episodes):
             env.render()
 
         action = select_action(state, policy_net_1)
-        observation, reward, terminated, _ = env.step(action.item())
+        observation, reward, terminated, _ = env.step(action.tolist()[0])
         reward = torch.tensor([reward], device=device)
         done = terminated
 
-        # if done:
-        #     next_state = None
-        # else:
-        next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+        if done:
+            next_state = None
+        else:
+            next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         memory_1.push(state, action, next_state, reward)
 
