@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
 
-env = GomokuEnv()
+env = GomokuEnv(board_size = 9)
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
@@ -152,6 +152,7 @@ def select_action(state, policy_net):
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
+            print(policy_net(state).max(1).indices.view(1, 1))
             return policy_net(state).max(1).indices.view(1, 1)
     else:
         # return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
