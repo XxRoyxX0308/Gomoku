@@ -43,7 +43,7 @@ class GomokuEnv(gym.Env):
         # 可以使用更豐富的視覺化，例如 matplotlib，但這裡採簡單文字列印
         for i in range(len(self.board[0])):
             row = self.board[0][i] + self.board[1][i] * 2
-            print(' '.join(str(int(x)) for x in row))
+            print(' '.join("-" if x == 0 else ("O" if x == 1 else "X") for x in row))
         print()  # 換行
 
     def check_five(self, r, c, player, win=5):
@@ -86,6 +86,7 @@ class GomokuEnv(gym.Env):
         # 轉換為 (row, col)
         # row, col = divmod(action, self.board_size)
         row, col = action
+        reward = 0
 
         # 檢查動作是否在範圍內
         if not (0 <= row < self.board_size and 0 <= col < self.board_size):
@@ -93,8 +94,9 @@ class GomokuEnv(gym.Env):
         # 如果該位置已有棋子，視為非法
         if (self.board[:, row, col] != 0).any():
             self.done = True
-            reward = -0.2
-            
+            reward = -1
+            print("Why", row, col)
+            self.render()
             return None, reward, self.done, {}
         
         # 放置當前玩家的棋子
@@ -104,18 +106,14 @@ class GomokuEnv(gym.Env):
             self.done = True
             # 當前玩家獲勝，若為玩家1(智能體)則 reward=+1，否則-1
             reward = 10 # if self.current_player == 1 else -1
+            self.render()
             return None, reward, self.done, {}
         # elif self.check_five(row, col, self.current_player, 4):
-        #     reward = 8 # if self.current_player == 1 else -1
-        #     print(4)
-        #     return [self.board.copy()], reward, False, {}
+        #     reward += 0.5
         # elif self.check_five(row, col, self.current_player, 3):
-        #     reward = 6 # if self.current_player == 1 else -1
-        #     print(3)
-        #     return [self.board.copy()], reward, False, {}
+        #     reward += 0.3
         # elif self.check_five(row, col, self.current_player, 2):
-        #     reward = 3 # if self.current_player == 1 else -1
-        #     return [self.board.copy()], reward, False, {}
+        #     reward += 0.2
         
         # 檢查是否和局（棋盤已滿）
         if not (self.board[0] + self.board[1] == 0).any():
@@ -125,7 +123,7 @@ class GomokuEnv(gym.Env):
         # # 切換到另一位玩家 (環境) 下棋
         self.current_player = int(not self.current_player)
         # 未分出勝負，回傳 reward=0
-        reward = 1
+        reward = -0.1
 
         if self.current_player:
             return self.board.copy(), reward, self.done, {}

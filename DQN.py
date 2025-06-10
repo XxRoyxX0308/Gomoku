@@ -106,8 +106,11 @@ def select_action(state, policy_net):
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
+            mask = (state[0][0] + state[0][1]).to(bool)
             prob = policy_net(state)[0, 0]
-            return (prob==torch.max(prob)).nonzero()[0].unsqueeze(0)
+            prob_masked = torch.masked_select(prob, ~mask)
+            
+            return (prob==torch.max(prob_masked)).nonzero()[0].unsqueeze(0)
     else:
         zero_indices = (state[0][0] + state[0][1] == 0).nonzero(as_tuple=False)
         chosen_index = zero_indices[random.randint(0, zero_indices.size(0) - 1)]
@@ -154,18 +157,9 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
     
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
-    # state_action_values = policy_net(state_batch).gather(1, action_batch)
     prob = policy_net(state_batch).squeeze(1)
     state_action_values = prob[action_batch[:, 0], action_batch[:, 1]]
 
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1).values
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
     
     with torch.no_grad():
@@ -185,7 +179,7 @@ def optimize_model(memory, policy_net, target_net, optimizer):
 
 
 
-num_episodes = 1000
+num_episodes = 2000
 
 for i_episode in range(num_episodes):
     state, _ = env.reset()
