@@ -105,7 +105,7 @@ class GomokuEnv(gym.Env):
         if self.check_five(row, col, self.current_player):
             self.done = True
             # 當前玩家獲勝，若為玩家1(智能體)則 reward=+1，否則-1
-            reward = 10 # if self.current_player == 1 else -1
+            reward = 1 # if self.current_player == 1 else -1
             self.render()
             return None, reward, self.done, {}
         # elif self.check_five(row, col, self.current_player, 4):
@@ -123,7 +123,7 @@ class GomokuEnv(gym.Env):
         # # 切換到另一位玩家 (環境) 下棋
         self.current_player = int(not self.current_player)
         # 未分出勝負，回傳 reward=0
-        reward = -0.1
+        reward = -0.05
 
         if self.current_player:
             return self.board.copy(), reward, self.done, {}

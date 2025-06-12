@@ -5,11 +5,13 @@ import torch.nn.functional as F
 
 from gomoku_env import GomokuEnv
 import math
+from pathlib import Path
 import random
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 from itertools import count
 
+name = "DQN"
 env = GomokuEnv(board_size = 15)
 
 device = torch.device(
@@ -17,18 +19,42 @@ device = torch.device(
 )
 
 
+abs_dir = Path(__file__).parent.absolute()
+models_dir = Path.joinpath(abs_dir, "models", name)
+models_dir.mkdir(parents=True, exist_ok=True)
+
+Path.joinpath(models_dir, "policy_net_0").mkdir(parents=True, exist_ok=True)
+Path.joinpath(models_dir, "target_net_0").mkdir(parents=True, exist_ok=True)
+Path.joinpath(models_dir, "policy_net_1").mkdir(parents=True, exist_ok=True)
+Path.joinpath(models_dir, "target_net_1").mkdir(parents=True, exist_ok=True)
+
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 
+win = None
+
 class ReplayMemory(object):
 
-    def __init__(self, capacity):
+    def __init__(self, capacity, number):
+        self.number = number
         self.memory = deque([], maxlen=capacity)
+        self.past_args = None
 
     def push(self, *args):
-        """Save a transition"""
-        self.memory.append(Transition(*args))
+        global win
+
+        if self.past_args != None:
+            if args[3] == 1: win = self.number
+
+            if win == int(not self.number):
+                self.past_args[3] -= 1
+                win = None
+
+            self.memory.append(Transition(*self.past_args))
+        
+        self.past_args = list(args)
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -41,43 +67,67 @@ class ReplayMemory(object):
 class CNNModel(nn.Module):
     def __init__(self, n_hidden=8):
         super().__init__()
-        self.block_1 = nn.Sequential(
+        self.cnn_block_1 = nn.Sequential(
             nn.Conv2d(2, n_hidden, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(n_hidden, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            # nn.MaxPool2d(2),
+        )
+
+        self.pool = nn.MaxPool2d(2, stride=1, return_indices=True)
+
+        self.cnn_block_2 = nn.Sequential(
+            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            nn.ReLU(),
             nn.Conv2d(n_hidden*2, n_hidden*4, 3, padding=1),
             nn.ReLU(),
         )
-        self.block_2 = nn.Sequential(
+        
+        self.cnn_t_block_1 = nn.Sequential(
             nn.ConvTranspose2d(n_hidden*4, n_hidden*2, 3, stride=1, padding=1),
             nn.ReLU(),
-            # nn.MaxUnpool2d(2),
+            nn.ConvTranspose2d(n_hidden*2, n_hidden*2, 3, stride=1, padding=1),
+            nn.ReLU(),
+        )
+
+        self.unpool = nn.MaxUnpool2d(2, stride=1)
+
+        self.cnn_t_block_2 = nn.Sequential(
             nn.ConvTranspose2d(n_hidden*2, n_hidden, 3, stride=1, padding=1),
             nn.ReLU(),
             nn.ConvTranspose2d(n_hidden, 1, 3, stride=1, padding=1),
         )
+        
 
-    def forward(self, x):
-        x = self.block_1(x)
-        x = self.block_2(x)
-        return x
+    def forward(self, input):
+        output1 = self.cnn_block_1(input)
+        output2, indices = self.pool(output1)
+        output3 = self.cnn_block_2(output2)
+
+        output4 = self.cnn_t_block_1(output3)
+        output5 = self.unpool(output4, indices)
+        output6 = self.cnn_t_block_2(output5)
+
+        return output6
 
 
 BATCH_SIZE = 128
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 1000
-TAU = 0.005
+EPS_DECAY = 5000
+TAU = 0.05
 LR = 1e-4
+episode_start = 0
+num_episodes = 100000
+save_epis = 5000
 
 
-# n_actions = env.action_space.n
-# state, _ = env.reset()
-# n_observations = 15 * 15
-num_hidden = 8
+state_load = False
+
+
+
+num_hidden = 32
 
 policy_net_0 = CNNModel(num_hidden).to(device)
 target_net_0 = CNNModel(num_hidden).to(device)
@@ -86,13 +136,24 @@ policy_net_1 = CNNModel(num_hidden).to(device)
 target_net_1 = CNNModel(num_hidden).to(device)
 
 
+if state_load:
+    episode_start = 10000
+    policy_net_0.load_state_dict(
+        torch.load(Path.joinpath(models_dir, "policy_net_0", f"{episode_start}_epis.pt"), map_location=device)
+    )
+    policy_net_1.load_state_dict(
+        torch.load(Path.joinpath(models_dir, "policy_net_1", f"{episode_start}_epis.pt"), map_location=device)
+    )
+    EPS_START = EPS_END
+
+
 target_net_0.load_state_dict(policy_net_0.state_dict())
 optimizer_0 = optim.AdamW(policy_net_0.parameters(), lr=LR, amsgrad=True)
-memory_0 = ReplayMemory(10000)
+memory_0 = ReplayMemory(10000, 0)
 
 target_net_1.load_state_dict(policy_net_1.state_dict())
 optimizer_1 = optim.AdamW(policy_net_1.parameters(), lr=LR, amsgrad=True)
-memory_1 = ReplayMemory(10000)
+memory_1 = ReplayMemory(10000, 1)
 
 
 steps_done = 0
@@ -179,8 +240,6 @@ def optimize_model(memory, policy_net, target_net, optimizer):
 
 
 
-num_episodes = 2000
-
 for i_episode in range(num_episodes):
     state, _ = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -249,6 +308,25 @@ for i_episode in range(num_episodes):
             episode_durations.append(t + 1)
             plot_durations()
             break
+
+
+    if (i_episode+1) % save_epis == 0:
+        torch.save(
+            policy_net_0.state_dict(),
+            Path.joinpath(models_dir, "policy_net_0", f"{episode_start+i_episode+1}_epis.pt")
+        )
+        torch.save(
+            target_net_0.state_dict(),
+            Path.joinpath(models_dir, "target_net_0", f"{episode_start+i_episode+1}_epis.pt")
+        )
+        torch.save(
+            policy_net_1.state_dict(),
+            Path.joinpath(models_dir, "policy_net_1", f"{episode_start+i_episode+1}_epis.pt")
+        )
+        torch.save(
+            target_net_1.state_dict(),
+            Path.joinpath(models_dir, "target_net_1", f"{episode_start+i_episode+1}_epis.pt")
+        )
 
 
 print('Complete')
