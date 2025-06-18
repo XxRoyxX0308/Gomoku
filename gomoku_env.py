@@ -123,7 +123,8 @@ class GomokuEnv(gym.Env):
         # # 切換到另一位玩家 (環境) 下棋
         self.current_player = int(not self.current_player)
         # 未分出勝負，回傳 reward=0
-        reward = -0.05
+        # reward = -0.05
+        reward = 0
 
         if self.current_player:
             return self.board.copy(), reward, self.done, {}

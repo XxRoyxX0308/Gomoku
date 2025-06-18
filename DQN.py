@@ -72,58 +72,74 @@ class CNNModel(nn.Module):
             nn.ReLU(),
             nn.Conv2d(n_hidden, n_hidden*2, 3, padding=1),
             nn.ReLU(),
+            # nn.Conv2d(n_hidden*2, n_hidden*2, 5, padding=2),
+            # nn.ReLU(),
         )
-
-        self.pool = nn.MaxPool2d(2, stride=1, return_indices=True)
 
         self.cnn_block_2 = nn.Sequential(
             nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(n_hidden*2, n_hidden*4, 3, padding=1),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
             nn.ReLU(),
+            # nn.Conv2d(n_hidden*4, n_hidden*4, 3, padding=1),
+            # nn.ReLU(),
         )
         
-        self.cnn_t_block_1 = nn.Sequential(
-            nn.ConvTranspose2d(n_hidden*4, n_hidden*2, 3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(n_hidden*2, n_hidden*2, 3, stride=1, padding=1),
-            nn.ReLU(),
-        )
-
+        self.pool = nn.MaxPool2d(2, stride=1, return_indices=True)
         self.unpool = nn.MaxUnpool2d(2, stride=1)
 
         self.cnn_t_block_2 = nn.Sequential(
-            nn.ConvTranspose2d(n_hidden*2, n_hidden, 3, stride=1, padding=1),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(n_hidden, 1, 3, stride=1, padding=1),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            nn.ReLU(),
+            # nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            # nn.ReLU(),
+        )
+
+        self.cnn_t_block_1 = nn.Sequential(
+            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(n_hidden*2, n_hidden, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(n_hidden, 1, 3, padding=1),
         )
         
 
-    def forward(self, input):
-        output1 = self.cnn_block_1(input)
-        output2, indices = self.pool(output1)
-        output3 = self.cnn_block_2(output2)
+    def forward(self, x):
+        x = self.cnn_block_1(x)
+        # x, indices_0 = self.pool(x)
+        x = self.cnn_block_2(x)
+        x = self.cnn_block_2(x) #has or not
+        # x, indices_1 = self.pool(x)
+        x = self.cnn_block_2(x)
+        x = self.cnn_block_2(x) #has or not not
+        # x = self.unpool(x, indices_1)
+        x = self.cnn_block_2(x)
+        x = self.cnn_block_2(x) #has or not not
+        
+        x = self.cnn_t_block_2(x)
+        # x = self.unpool(x, indices_0)
+        x = self.cnn_block_2(x) #has or not not
 
-        output4 = self.cnn_t_block_1(output3)
-        output5 = self.unpool(output4, indices)
-        output6 = self.cnn_t_block_2(output5)
+        x = self.cnn_t_block_1(x)
 
-        return output6
+        return x
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 5000
+EPS_DECAY = 10000
 TAU = 0.05
-LR = 1e-4
+LR = 1e-4  ## 4
 episode_start = 0
 num_episodes = 100000
-save_epis = 5000
+save_epis = 500
 
 
-state_load = False
+state_load = True
 
 
 
@@ -137,7 +153,7 @@ target_net_1 = CNNModel(num_hidden).to(device)
 
 
 if state_load:
-    episode_start = 10000
+    episode_start = 5000
     policy_net_0.load_state_dict(
         torch.load(Path.joinpath(models_dir, "policy_net_0", f"{episode_start}_epis.pt"), map_location=device)
     )
@@ -165,12 +181,13 @@ def select_action(state, policy_net):
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * int(steps_done / 2) / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
+    # if sample > eps_threshold:
+    if True:
         with torch.no_grad():
             mask = (state[0][0] + state[0][1]).to(bool)
             prob = policy_net(state)[0, 0]
             prob_masked = torch.masked_select(prob, ~mask)
-            
+
             return (prob==torch.max(prob_masked)).nonzero()[0].unsqueeze(0)
     else:
         zero_indices = (state[0][0] + state[0][1] == 0).nonzero(as_tuple=False)
