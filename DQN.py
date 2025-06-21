@@ -43,16 +43,28 @@ class ReplayMemory(object):
         self.past_args = None
 
     def push(self, *args):
-        global win
+        # global win
+
+        # if self.past_args != None:
+        #     if args[3] == 1: win = self.number
+
+        #     if win == int(not self.number):
+        #         self.past_args[3] -= 1
+        #         win = None
+
+        #     self.memory.append(Transition(*self.past_args))
+        
+        # self.past_args = list(args)
+
+
 
         if self.past_args != None:
-            if args[3] == 1: win = self.number
-
-            if win == int(not self.number):
+            if args[3] == 1:
+                self.past_args[2] = None
                 self.past_args[3] -= 1
-                win = None
 
-            self.memory.append(Transition(*self.past_args))
+            if self.past_args[3] != 0 or steps_done % 3 == 0:  ## del
+                self.memory.append(Transition(*self.past_args))
         
         self.past_args = list(args)
 
@@ -89,12 +101,12 @@ class CNNModel(nn.Module):
         self.unpool = nn.MaxUnpool2d(2, stride=1)
 
         self.cnn_t_block_2 = nn.Sequential(
-            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 7, padding=3),
+            nn.ReLU(),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 5, padding=2),
             nn.ReLU(),
             nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            # nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
-            # nn.ReLU(),
         )
 
         self.cnn_t_block_1 = nn.Sequential(
@@ -110,17 +122,17 @@ class CNNModel(nn.Module):
         x = self.cnn_block_1(x)
         # x, indices_0 = self.pool(x)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not
+        x = self.cnn_block_2(x)
         # x, indices_1 = self.pool(x)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
         # x = self.unpool(x, indices_1)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
         
         x = self.cnn_t_block_2(x)
         # x = self.unpool(x, indices_0)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
 
         x = self.cnn_t_block_1(x)
 
@@ -134,12 +146,13 @@ EPS_END = 0.05
 EPS_DECAY = 10000
 TAU = 0.05
 LR = 1e-4  ## 4
+memory_capacity = 2000  ## memory_capacity = 10000
 episode_start = 0
 num_episodes = 100000
 save_epis = 500
 
 
-state_load = True
+state_load = False
 
 
 
@@ -153,7 +166,7 @@ target_net_1 = CNNModel(num_hidden).to(device)
 
 
 if state_load:
-    episode_start = 5000
+    episode_start = 500
     policy_net_0.load_state_dict(
         torch.load(Path.joinpath(models_dir, "policy_net_0", f"{episode_start}_epis.pt"), map_location=device)
     )
@@ -165,11 +178,11 @@ if state_load:
 
 target_net_0.load_state_dict(policy_net_0.state_dict())
 optimizer_0 = optim.AdamW(policy_net_0.parameters(), lr=LR, amsgrad=True)
-memory_0 = ReplayMemory(10000, 0)
+memory_0 = ReplayMemory(memory_capacity, 0)
 
 target_net_1.load_state_dict(policy_net_1.state_dict())
 optimizer_1 = optim.AdamW(policy_net_1.parameters(), lr=LR, amsgrad=True)
-memory_1 = ReplayMemory(10000, 1)
+memory_1 = ReplayMemory(memory_capacity, 1)
 
 
 steps_done = 0
@@ -184,11 +197,21 @@ def select_action(state, policy_net):
     # if sample > eps_threshold:
     if True:
         with torch.no_grad():
-            mask = (state[0][0] + state[0][1]).to(bool)
-            prob = policy_net(state)[0, 0]
-            prob_masked = torch.masked_select(prob, ~mask)
+            # mask = (state[0][0] + state[0][1]).to(bool)
+            # prob = policy_net(state)[0, 0]
+            # prob_masked = torch.masked_select(prob, ~mask)
 
-            return (prob==torch.max(prob_masked)).nonzero()[0].unsqueeze(0)
+            # return (prob==torch.max(prob_masked)).nonzero()[0].unsqueeze(0)
+        
+
+
+            prob = policy_net(state)[0, 0]
+            mask = (state[0, 0] + state[0, 1]).to(bool)
+            prob[mask] = -float('inf')
+            action_flat = prob.view(-1).argmax().item()
+            action = torch.tensor([[action_flat // 15, action_flat % 15]], device=device)
+
+            return action
     else:
         zero_indices = (state[0][0] + state[0][1] == 0).nonzero(as_tuple=False)
         chosen_index = zero_indices[random.randint(0, zero_indices.size(0) - 1)]
@@ -197,32 +220,38 @@ def select_action(state, policy_net):
 
 
 episode_durations = []
+episode_loss = []
 
 
 def plot_durations(show_result=False):
     plt.figure(1)
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    durations_l = torch.tensor(episode_loss, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
         plt.clf()
         plt.title('Training...')
     plt.xlabel('Episode')
-    plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
+    plt.ylabel('Duration || Loss')
 
-    plt.pause(0.001)  # pause a bit so that plots are updated
+    # plt.plot(durations_t.numpy())
+    # if len(durations_t) >= 100:
+    #     means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+    #     means = torch.cat((torch.zeros(99), means))
+    #     plt.plot(means.numpy())
+
+    plt.plot(durations_l.numpy())
+
+    plt.pause(0.001)
 
         
-def optimize_model(memory, policy_net, target_net, optimizer):
-    if len(memory) < BATCH_SIZE:
-        return
-    transitions = memory.sample(BATCH_SIZE)
+def optimize_model(memory, policy_net, target_net, optimizer, done):
+    batch_size = min(len(memory), BATCH_SIZE)
+    if batch_size == 0:
+        return 0
+
+    transitions = memory.sample(batch_size)
     
     batch = Transition(*zip(*transitions))
 
@@ -235,25 +264,28 @@ def optimize_model(memory, policy_net, target_net, optimizer):
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
     
-    prob = policy_net(state_batch).squeeze(1)
-    state_action_values = prob[action_batch[:, 0], action_batch[:, 1]]
-
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    prob = policy_net(state_batch)
+    state_action_values = prob[torch.arange(batch_size), 0, action_batch[:, 0], action_batch[:, 1]]
+    
+    next_state_values = torch.zeros(batch_size, device=device)
     
     with torch.no_grad():
         pred = target_net(non_final_next_states)
         next_state_values[non_final_mask] = pred.view(pred.size(0), -1).max(1).values
-
+    
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-
+    
     criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    loss = criterion(state_action_values.unsqueeze(1), expected_state_action_values.unsqueeze(1))
+    if done: print(state_action_values[0].item(), expected_state_action_values[0].item())
 
     optimizer.zero_grad()
     loss.backward()
     
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), clip_value=1.0)
     optimizer.step()
+
+    return loss.mean().item()
 
 
 
@@ -271,12 +303,12 @@ for i_episode in range(num_episodes):
             next_state = None
         else:
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
-
+        
         memory_0.push(state, action, next_state, reward)
 
         state = next_state
 
-        optimize_model(memory_0, policy_net_0, target_net_0, optimizer_0)
+        loss = optimize_model(memory_0, policy_net_0, target_net_0, optimizer_0, done)
 
         target_net_state_dict = target_net_0.state_dict()
         policy_net_state_dict = policy_net_0.state_dict()
@@ -290,41 +322,47 @@ for i_episode in range(num_episodes):
 
         if done:
             episode_durations.append(t + 1)
+
+            if loss == None:
+                episode_loss.append(0)
+            else:
+                episode_loss.append(loss)
+
             plot_durations()
             break
 
         
 
-        action = select_action(state, policy_net_1)
-        observation, reward, terminated, _ = env.step(action.tolist()[0])
-        reward = torch.tensor([reward], device=device)
-        done = terminated
+        # action = select_action(state, policy_net_1)
+        # observation, reward, terminated, _ = env.step(action.tolist()[0])
+        # reward = torch.tensor([reward], device=device)
+        # done = terminated
 
-        if done:
-            next_state = None
-        else:
-            next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+        # if done:
+        #     next_state = None
+        # else:
+        #     next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
-        memory_1.push(state, action, next_state, reward)
+        # memory_1.push(state, action, next_state, reward)
 
-        state = next_state
+        # state = next_state
 
-        optimize_model(memory_1, policy_net_1, target_net_1, optimizer_1)
+        # optimize_model(memory_1, policy_net_1, target_net_1, optimizer_1)
 
-        target_net_state_dict = target_net_1.state_dict()
-        policy_net_state_dict = policy_net_1.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net_1.load_state_dict(target_net_state_dict)
+        # target_net_state_dict = target_net_1.state_dict()
+        # policy_net_state_dict = policy_net_1.state_dict()
+        # for key in policy_net_state_dict:
+        #     target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+        # target_net_1.load_state_dict(target_net_state_dict)
 
-        if i_episode + 1 == num_episodes:
-            print(action)
-            env.render()
+        # if i_episode + 1 == num_episodes:
+        #     print(action)
+        #     env.render()
 
-        if done:
-            episode_durations.append(t + 1)
-            plot_durations()
-            break
+        # if done:
+        #     episode_durations.append(t + 1)
+        #     plot_durations()
+        #     break
 
 
     if (i_episode+1) % save_epis == 0:

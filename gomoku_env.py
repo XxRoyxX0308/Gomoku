@@ -102,7 +102,7 @@ class GomokuEnv(gym.Env):
         # 放置當前玩家的棋子
         self.board[self.current_player, row, col] = 1
         # 檢查是否構成五子連珠
-        if self.check_five(row, col, self.current_player):
+        if self.check_five(row, col, self.current_player, 4):
             self.done = True
             # 當前玩家獲勝，若為玩家1(智能體)則 reward=+1，否則-1
             reward = 1 # if self.current_player == 1 else -1
@@ -123,7 +123,7 @@ class GomokuEnv(gym.Env):
         # # 切換到另一位玩家 (環境) 下棋
         self.current_player = int(not self.current_player)
         # 未分出勝負，回傳 reward=0
-        # reward = -0.05
+        # reward = -0.01
         reward = 0
 
         if self.current_player:
