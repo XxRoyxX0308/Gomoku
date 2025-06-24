@@ -48,12 +48,12 @@ class CNNModel(nn.Module):
         self.unpool = nn.MaxUnpool2d(2, stride=1)
 
         self.cnn_t_block_2 = nn.Sequential(
-            nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 7, padding=3),
+            nn.ReLU(),
+            nn.Conv2d(n_hidden*2, n_hidden*2, 5, padding=2),
             nn.ReLU(),
             nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
             nn.ReLU(),
-            # nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
-            # nn.ReLU(),
         )
 
         self.cnn_t_block_1 = nn.Sequential(
@@ -69,17 +69,17 @@ class CNNModel(nn.Module):
         x = self.cnn_block_1(x)
         # x, indices_0 = self.pool(x)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not
+        x = self.cnn_block_2(x)
         # x, indices_1 = self.pool(x)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
         # x = self.unpool(x, indices_1)
         x = self.cnn_block_2(x)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
         
         x = self.cnn_t_block_2(x)
         # x = self.unpool(x, indices_0)
-        x = self.cnn_block_2(x) #has or not not
+        x = self.cnn_block_2(x)
 
         x = self.cnn_t_block_1(x)
 
@@ -97,7 +97,7 @@ target_net_1 = CNNModel(num_hidden).to(device)
 
 
 
-episode_start = 10000
+episode_start = 3000
 policy_net_0.load_state_dict(
     torch.load(Path.joinpath(models_dir, "policy_net_0", f"{episode_start}_epis.pt"), map_location=device)
 )

@@ -1,3 +1,8 @@
 output 不要壓扁 finish :}
 2*15*15 finish :}
 7 to 15 訓練 dont need?
+MC base
+
+
+asynchronous training?
+enlarge model?
