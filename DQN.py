@@ -63,7 +63,6 @@ class ReplayMemory(object):
                 self.past_args[2] = None
                 self.past_args[3] -= 1
 
-            # if self.past_args[3] != 0 or (steps_done - 2) % 50 == 0:  ## del 50 to 20 to None to 30
             self.memory.append(Transition(*self.past_args))
         
         self.past_args = list(args)
@@ -104,15 +103,6 @@ class CNNModel(nn.Module):
         self.pool = nn.MaxPool2d(2, stride=1, return_indices=True)
         self.unpool = nn.MaxUnpool2d(2, stride=1)
 
-        # self.cnn_t_block_2 = nn.Sequential(
-        #     nn.Conv2d(n_hidden*2, n_hidden*2, 7, padding=3),
-        #     nn.ReLU(),
-        #     nn.Conv2d(n_hidden*2, n_hidden*2, 5, padding=2),
-        #     nn.ReLU(),
-        #     nn.Conv2d(n_hidden*2, n_hidden*2, 3, padding=1),
-        #     nn.ReLU(),
-        # )
-
         self.cnn_t_block_1 = nn.Sequential(
             nn.Conv2d(n_hidden*4, n_hidden*2, 3, padding=1),
             nn.ReLU(),
@@ -124,21 +114,6 @@ class CNNModel(nn.Module):
 
     def forward(self, x):
         x = self.cnn_block_1(x)
-        # # x, indices_0 = self.pool(x)
-        # x = self.cnn_block_2(x)
-        # x = self.cnn_block_2(x)
-        # # x, indices_1 = self.pool(x)
-        # x = self.cnn_block_2(x)
-        # x = self.cnn_block_2(x)
-        # # x = self.unpool(x, indices_1)
-        # x = self.cnn_block_2(x)
-        # x = self.cnn_block_2(x)
-        
-        # x = self.cnn_block_2(x)
-        # # x = self.unpool(x, indices_0)
-        # x = self.cnn_block_2(x)
-
-
         x = self.cnn_block_2(x)
         x = self.cnn_t_block_1(x)
 
@@ -151,9 +126,9 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 10000
 TAU = 0.01
-LR = 1e-4  ## 4
-reward_rate = 1  ## 1e+2 to 1  v3
-memory_capacity = 10000  ## memory_capacity = 10000
+LR = 1e-4
+reward_rate = 1
+memory_capacity = 10000
 episode_start = 0
 num_episodes = 100000
 save_epis = 500
