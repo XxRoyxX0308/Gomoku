@@ -12,11 +12,12 @@ from collections import namedtuple, deque
 from itertools import count
 
 name = "DQN"
-env = GomokuEnv(board_size = 10, win_length=3)
+env = GomokuEnv(board_size = 15, win_length = 5)
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
+torch.backends.cudnn.benchmark = True
 
 
 abs_dir = Path(__file__).parent.absolute()
@@ -84,6 +85,7 @@ class CNNModel(nn.Module):
             nn.Conv2d(n_hidden, n_hidden*2, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(n_hidden*2, n_hidden*4, 3, padding=1),
+            # nn.BatchNorm2d(n_hidden*4)  ??  bias = False
             nn.ReLU(),
         )
 
@@ -121,10 +123,10 @@ class CNNModel(nn.Module):
 
 
 BATCH_SIZE = 256
-GAMMA = 0.9
+GAMMA = 0.95
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 10000
+EPS_DECAY = 2000
 TAU = 0.01
 LR = 1e-4
 reward_rate = 1
@@ -134,7 +136,7 @@ num_episodes = 100000
 save_epis = 500
 
 
-state_load = False
+state_load = True
 
 
 
@@ -148,7 +150,7 @@ target_net_1 = CNNModel(num_hidden).to(device)
 
 
 if state_load:
-    episode_start = 4500
+    episode_start = 5500
     value_net_0.load_state_dict(
         torch.load(Path.joinpath(models_dir, "value_net_0", f"{episode_start}_epis.pt"), map_location=device)
     )
@@ -176,8 +178,8 @@ def select_action(state, value_net):
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * int(steps_done / 2) / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
-    # if True:
+    # if sample > eps_threshold:
+    if True:
         with torch.no_grad():
             prob = value_net(state)[0, 0]
             mask = (state[0, 0] + state[0, 1]).to(bool)
